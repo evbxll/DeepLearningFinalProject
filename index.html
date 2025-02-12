@@ -1,0 +1,1141 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="VAEs for Instrument Audio Generation">
+  <link rel="shortcut icon" href="images/icon.ico">
+  <title>Reconstructing Resonance: VAEs for Instrument Audio Generation</title>
+  <!-- Link to the external CSS file -->
+  <link rel="stylesheet" href="main.css">
+</head>
+
+<body>
+  <header>
+    <h1>Reconstructing Resonance: VAEs for Instrument Audio Generation</h1>
+    <p>Final Project for 6.7960, MIT - By Ellery Stahler & Evan Bell</p>
+  </header>
+
+  <div class="content-container">
+    <!-- Left Sidebar -->
+    <div class="left-sidebar">
+      <h2>Outline</h2>
+      <ul>
+        <li><a href="#intro">Background and Movtivation</a></li>
+        <li><a href="#data">Data and preprocessing</a></li>
+        <li><a href="#generation">Audio Generation Results</a></li>
+        <li><a href="#transfer">Transfer Learning Results</a></li>
+        <li><a href="#Appendix">Appendix</a></li>
+        <li><a href="#references">References</a></li>
+      </ul>
+    </div>
+
+    <!-- Main Content -->
+    <div class="main-content">
+
+      <section id="intro">
+        <h1 style="margin-top: 0px;">Background and Motivation</h1>
+
+        <h3>Why Should We Care About VAEs for Music?</h3>
+        <p>
+          What is useful about Variational Autoencoders (VAEs) for the audio and music domain? Variational Autoencoders (VAEs) are a type of generative model 
+          which learn to map data into a lower-dimensional, structured latent space.
+          They consist of two key components:
+        </p>
+        <ul>
+          <li><strong>Encoder:</strong> Transforms input data into a distribution in the
+            latent space, modeled as a multivariate Gaussian distribution</li>
+          <br>
+          <li><strong>Decoder:</strong> Reconstructs the data from values in the latent distribution</li>
+        </ul>
+
+        <figure
+          style="text-align: center; padding: 16px; background-color: #f9f9f9; border-radius: 8px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); width: 80%; ">
+          <img src="images/VAE_Basic.png" alt="A graph of VAE architecture"
+            style="max-width: 100%; height: auto; border-radius: 8px;">
+          <figcaption style="margin-top: 12px; font-size: 16px; font-weight: bold; color: #555;">
+            Standard VAE Architecture
+          </figcaption>
+          <figcaption style="margin-top: 8px; font-size: 14px; color: #777;">
+            <a href="https://en.wikipedia.org/wiki/Variational_autoencoder" target="_blank"
+              style="color: #007BFF; text-decoration: none;">
+              Source: Wikipedia on Variational Autoencoders
+            </a>
+          </figcaption>
+        </figure>
+        <p>
+          VAEs use a regularization term, the Kullback-Leibler (KL) divergence, to encourage the latent space to
+          approximate a prior, the standard normal distribution. This enourages smoothness
+          and continuity in the latent space, where similar points correspond to similar data. Unlike traditional autoencoders, where the latent space lacks an explicit probabilistic organization,
+          VAEs are able to generate entirely new data points by sampling from the latent space rather than directly
+          reconstructing a fixed encoding. VAEs have been extensively studied for the image domain but slightly less so for the audio domain which comes with its own challenges.
+          The most useful way to represent audio for the purposes of human analysis is as a spectrogram which displays time on one axis, frequency on the other, and each point takes on a value
+          corresponding to the amplitude of that frequency at that time. Notably, unlike images, the two axis represent completely different features of the audio. Additionally, there's only translation
+          invariance in the time dimension. This presents challenges that to not are not apparent in the image domain.
+        </p>
+        <p>
+          The property of being able to sample new points from a latent distribution makes VAEs particular salient for the
+          tasks of music generation. VAEs excel in learning smooth latent representations,
+          which aid in producing meaningful representations of important audio attributes for music like pitch, rythm, etc. This means that
+          when reconstructing audio from the latent space, an artist using such a VAE can in theory pick and choose attributed that they like or would
+          like to tweak with the decoded sound simply by moving slightly in the latent space in the dimension that controls the desired features.
+        </p>
+        <p>
+          Due to this motivation, we seek to compare the capability of different encoder/decoder architecture of VAEs for the task of music audio generation.
+          We explore variations on standard VAE models including adapting kernel sizes in order to fit the audio domain better, implementing residual blocks into the 
+          architecture, as well as variations on loss functions. We also explore the capabilities of VAEs for transfer learning in the audio domain, which as we've discussed,
+          is inherently different from that of the image of domain.
+        </p>
+
+        <h2>Related Works</h2>
+
+        <p>
+          Different VAE architectures have been proposed to optimize latent representation quality. RAVE, proposed by Caillon et al, 
+          finds success in high-quality audio generation using VAEs mixed with GANs <a href="#RAVE">[1]</a>.
+        </p>
+
+        <p>
+          Transfer learning with VAEs has been studied extensively in the image domain, but its application to audio
+          remains underexplored.
+          Research such as "How Good Are VAEs at Transfer
+          Learning?" the representational similarity of VAE components (encoders and decoders) across 
+          different datasets using Centred Kernel Alignment (CKA) <a href="#autoencoders_transfer">[2]</a>. It concludes that encoders produce generic 
+          representations suitable for transfer, while decoders are more task-specific. This offers guidance on the roles of both VAE components and 
+          methods for effective transfer learning, although this does not focus on the audio domain. Similarly, Hsu et al's work on
+          "Learning Latent Representations for Speech Generation and Transformation" introduces 1D kernels to
+          distinguish between time and frequency dimensions <a href="#latent_reps_speech">[3]</a>. This offers a foundation for applying VAEs to audio, but the
+          implications for cross-domain audio tasks are not fully explored.
+        </p>
+
+        <p>
+          Strong techniques for improving VAE performance have been proposed, such as β-annealing, used by Sankarapandian et al. in 
+          "β-Annealed Variational Autoencoder for glitches" <a href="#beta_anneal">[4]</a>. β-annealing involves progressively 
+          increasing the β-term during training to balance reconstruction quality and KL divergence. The β-term wieghs KL divergence to encourage 
+          a normal latent space distribution. They find that this annealing schedule mimics the effects of gradually increasing 
+          information capacity in Bottleneck-VAEs.
+          While this approach has been applied to spectrogram representations for 
+          gravitational wave detection, its application to music spectrograms remains unexplored. Additionally, using 
+          1D kernels to separate time and frequency dimensions has shown promise in speech processing but has not been 
+          fully investigated for musical audio generation.
+        </p>
+
+      <p>
+        The current literature on VAE presents a clear gap in a definitive comparison of the quality of different
+        encoder and decoder
+        architectures for the purposes of generation. This type of generation comparison in the audio domain remains
+        even more under
+        explored. Of the VAEs used to generate audio, few have been used for music. Those that focus on music generation such as 
+        Jukebox<a href="#jukebox">[5]</a> or RAVE<a href="#RAVE">[1]</a> typically use more complicated models and do not
+        focus on the comparison of different encoder and decoder architectures; or they do not focus on the raw
+        wave representation of the data, such as MusicVAE, which uses MIDI inputs instead <a href="#musicvae">[6]</a>. 
+        Additionally, many other advanced techniques have only properly been explored in the
+        image domain.
+        This includes using residual blocks in the encoder and decoder architecture, beta-annealing for the loss, as
+        well as other applications of VAEs which we investigate such as the potential for transfer learning and the generality of
+        learned latent spaces.
+      </p>
+    </section>
+
+
+
+      <section id="data">
+        <h1>Data and preprocessing</h1>
+        <p>
+          For this project, we used audio data from the Medley-solos-DB, a database containing 21,572 mono audio clips
+          sampled at 44.1 kHz with a 32-bit depth <a href=#db>[7]</a>. Each audio clip has a fixed duration of 2972 milliseconds, or 65536
+          discrete-time samples, providing a uniform and manageable input size for our model. These clips are split by
+          instrument, allowing us to isolate individual instruments for training and generation tasks.
+        </p>
+        <p>
+          To prepare the data for training, we performed several preprocessing steps. The audio data was first converted
+          into spectrograms, which provide a time-frequency representation of the audio. This transformation is crucial
+          for working with audio in machine learning, as raw waveform data can be difficult for models to process
+          effectively.
+        </p>
+        <p>
+          A spectrogram is essentially a visual representation of the frequencies that are present in an audio signal
+          over time. It is computed by applying a Fourier transform to the audio signal, breaking it down into its
+          frequency components across small windows of time. The Fourier transform itself is a mathematical operation
+          that converts a time-domain signal (which shows how the signal varies with time) into a frequency-domain
+          signal (which shows how much of each frequency is present at any given time).
+        </p>
+        <p>
+          To create the spectrograms, we used the following parameters:
+        <ul>
+          <li><b>n_mels = 512</b>: This sets the number of Mel-frequency bins, which are a logarithmic scale that mimics the
+            human ear's sensitivity to sound. The Mel scale is designed to capture the perceptually significant
+            frequencies, and 512 bins offer a good balance between frequency resolution and computational efficiency.
+          </li>
+          <li><b>n_fft = 4096</b> : This is the size of the FFT window. A larger window size results in higher frequency
+            resolution, which is useful for capturing fine details in the frequency domain.</li>
+          <li><b>hop_len = 1024</b>: The hop length is the number of samples between successive frames. A smaller hop length
+            allows for finer temporal resolution, which is important for capturing the dynamics of music.</li>
+          <li><b>sr = 22050</b>: The sample rate of the spectrogram was set to 22,050 Hz, which is commonly used in
+            music-related tasks for balancing time and frequency resolution.</li>
+        </ul>
+        </p>
+        <p>
+          Using these settings, we generated Mel spectrograms with the dimensions (512, 64), where 512 corresponds to
+          the number of frequency bins (on the Mel scale) and 64 represents the number of time frames, effectively
+          reducing the dimensionality of the raw audio while retaining crucial frequency and temporal information. These
+          spectrograms were then used as input data for training our Variational Autoencoder (VAE) model.
+          The goal of this preprocessing was to create spectrograms that are small in dimension but informative enough
+          for robust reconstruction during the VAE training process. This was important for ensuring that the latent
+          space of the VAE could capture the musical features needed to generate high-quality audio outputs.
+        </p>
+
+        <figure class="iframe-container">
+          <iframe blog_template\
+            src="audio_single_img.html?img_filename=media/spect_example/example_spec.png&audio_filename=media/spect_example/example_audio.wav&width=400&height=200"
+            style="border: none; width: 400px; height: 200px;"></iframe>
+          </iframe>
+          <hr>
+          <figcaption><b>Figure 1: </b> An example Mel spectorgram taken from the piano training data <br>(<font color="red">NOTE:</font> Click image to play audio)</figcaption>
+        </figure>
+
+      </section>
+
+      <section>
+        <h3>Model Architechtures and Loss Variations</h3>
+
+        <p>
+          We explore four main kinds of encoder/decoder architectures. We found early on that for our purposes, a small latent dimension performed best in being able to best generate new data as well still have sufficient
+          reconstruction quality over various different models. Therefore, we trained all models using a latent dimension of 8. Simiarly, we used a batch size of 64 which allowed us to speed up 
+          training slightly by better utilizing gpu while still ensuring that we're not averaging the gradient step over too many samples and smoothing too much. 
+          The first encoder/decoder architecture that we considered was a fully linear model, which
+          flattens the input image, then has a series of linear layers, each decreasing in width, until it reaches the desired latent dimension. The decoder simply
+          has the same linear layers in the reverse direction. After each linear layer, we use the ReLU nonlinearity. Throughout the result of the results section, we'll refer to this as the <b>linear model</b>, the full architecture of which is described in Appendix A.
+        <p>
+          We then consider a CNN-based encoder and
+          decoder which contains a series of convolutional layers, downsizing the image while also increasing in the number of channels.
+          The result is then flattened and linear layers are applied in order to reach the desired latent dimension. In the decoder, we use deconvolutional
+          layers in order to upsize the image and reduce the number of channels. After each (de)convolutional layer, we apply a BatchNorm layer as well as a ReLU
+          nonlinearity. We'll refer to this first, more basic convolutional model as the <b>conv model</b> and the complete architecture can be found in
+          Appendix B.
+        </p>
+        <p>
+          The next architecture that we tested is a more audio-domain-aware CNN approach. In particular, drawing inspiration from Hsu W et al <a href="#1D-kernel">[3]</a>, we adapt the more fundemental convolutional architecture
+          above to be more fitted for the audio domain by downsampling more gradually and using 1D kernels with varying sizes. Intuitively, the two dimensions of a spectrogram,
+          time and frequency, represent very different things which is what separates the audio domain from the image domain. As such, it makes sense to treat them differently
+          by allowing them to largely have seperate kernels. Additionally, we implement larger kernel sizes early in the encoder and deep in the decoder in the hopes
+          of being able to better capture finer details in the frequency and time dimensions such as more accurate timbre representation as well as quick note changes in the audio. Like the previous model,
+          BatchNorm is applied after each (de)convolutinal layer and ReLU applied after that. 
+          Due to these awarenesses of the audio domain, we refer to this model as the <b>ADA conv model</b> or audio domain aware conv model. The full architecture can be found in Appendix C.
+        </p>
+        <p>
+          The last architecture that we implemented was one that incorporates residual blocks into both the encoder and decoder, inspired by the work of Vahdat A. and Kautz J. on incorporating
+          residual blocks into the decoder of a VAE trained on the CelebA HQ dataset <a href="#resid">[8]</a>. Similar to the ADA conv architecture, the hope is that by incorporating skip connections
+          via residual blocks, we're able to better retain finer information from early convolutional layers that should be capturing details such as finer timbre information and quick note changes in the frequency
+          and time dimensions respectively. Therefore, for the encoder, we implement early residual layers in order to capture this information. For the decoder, the residual blocks are more evenly spread
+          throughout the layers or order to retain both salient features learned in the latent space as well as being able to successfully back out and decode more of the intermediate features and fine grained that the model learns. 
+          We refer to this model as the <b>resid model</b> and the complete architecture can be found in Appendix D.
+        </p>
+        <p>
+          In order to train our models, we used a technique called beta-annealing. The traditional VAE loss is given by the reconstruction loss + KL divergence term. However, there's a variation
+          known as beta-VAE which slightly modifies the loss to be the reconstruction term + beta * KL divergence term. What beta-annealing does is go one step further and vary beta throughout the training process.
+          In particular, beta starts low and is increased over time. This ensures that the first priority of the model is accurate reconstruction. This is particularly important for a task such as audio generation since
+          if the model cannot recreate quality audio on its training data, it will have no hope of being able to generate quality sounding data by sampling from the latent space. 
+        </p>
+        <p>
+          Therefore, we chose to first linearly increase beta from 0.05 at the start to 0.20 over the first 150 epochs. This encourages the model to learn accurate reconstructions while still restricting the latent space to being
+          approximately Gaussian. We then keep beta constant at 0.20 until epoch 1000 which ensures that the model has achieved near-optimal loss for these hyperparameters. Then, we increase beta by 0.20 every 25 epochs for the next
+          450 epochs. The nonlinear jumps in beta were selected as we noticed that the KL divergence term very quickly adapts to the new value of beta and until the next jump, does not decrease much over the subsequent
+          epochs. We choose to hold each beta for 25 epochs as we found that that is approximately how long it took the reconstruction loss to heavily plateau after the change in beta. Lastly, we chose
+          to increase beta nine times (over 450 epochs) as this was approximately before the point where we observed a drop in quality of the audio reconstruction. The full training scheme as well as loss terms can be observed in <b>Figure 2</b> below. 
+          By training according to this beta-annealing scheme, we're able to ensure the latent space is as close to Gaussian as possible (which encourages generalization and quality sampling) without sacrificing subjective audio reconstruction quality. 
+        </p>
+        <br>
+        <p>
+          <figure style="text-align: center; padding: 16px; background-color: #f9f9f9; border-radius: 8px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); width: 80%; margin: 20px auto;">
+            <img 
+              src="media/loss_betas.png" 
+              alt="Description of the image" 
+              style="max-width: 100%; height: auto; border-radius: 8px;">
+            <figcaption style="margin-top: 12px; font-size: 16px; font-weight: bold; color: #555;">
+              <b>Figure 2: </b>Training of Piano Conv Model with beta-annealing, losses plotted left, beta on right 
+            </figcaption>
+          </figure>
+        </p>
+
+      </section>
+
+
+      <section id="generation">
+        <h1>Experimental Results</h1>
+      <p>
+        In order to compare the performance of the architectures, we focused primarily on models trained on the piano dataset since that's what we had the most
+        data for. Let's first look at (and listen to!) the quality of the reconstruction of a few of the training data points in <b>Figure 3</b> below.
+
+        <figure class="iframe-container">
+          <iframe
+            src="compare_model.html?width=700&height=320&folder=media/model_comparisons/reconstructed_audio/&colNames=true,linear_model,conv_model,resid_model,audio_conv_model&colHeaders=Original, Linear,Conv,Resid,ADA Conv"
+            style="border: none; width: 700px; height: 320px;">
+          </iframe>
+          <hr>
+          <figcaption>Figure 3: Comparison of reconstructed outputs from each model
+            <br>(<font color="red">NOTE:</font> Click image to play audio)
+          </figcaption>
+        </figure>
+
+        We observe that for the first two samples, all four of our models reconstruct the original audio quite accurately. This is expected since we're prioritizing
+        reconstruction accuracy in our beta-annealing scheme. For the third sample, the true audio is a bit more complex and in particular, involves quick note changes.
+        For this sample, our subjective ranking for audio reconstruction quality is (from best to worst) the ADA conv model, linear model, and then the resid model and conv 
+        model in some order. It's surprising to us that the residual model does not perform as well given that in theory, it should be able to capture even more intricacies than
+        the ADA conv model. Notably, both the residual model as well as the convolutional model fail to capture the quick note changes present in the true audio.
+      </p>
+
+      <p>
+        Now, let's examine the quality of the reconstructed audio of each of these models. We do this by sampling points in latent space accoriding to a Gaussian distribution in the latent
+        dimension. The results of these decoded samples are visualized and heard in <b>Figure 4</b> below.
+
+        <figure class="iframe-container">
+          <iframe
+            src="compare_model.html?width=500&height=400&folder=media/model_comparisons/samples_from_latent/&colNames=linear_model,conv_model,resid_model,audio_conv_model&colHeaders=Linear,Conv,Resid,ADA Conv"
+            style="border: none; width: 500px; height: 400px;">
+          </iframe>
+          <hr>
+          <figcaption>Figure 4: Comparison of outputs generated from random normal samples of the latent space, for 4 models
+            <br>(<font color="red">NOTE:</font> Click image to play audio)
+          </figcaption>
+        </figure>
+
+        Notice that the linear model, despite doing well in reconstruction, has subjectively the worst quality audio reconstruction. In particular,
+        the model appears to be unable to accurately capture the timbre of a piano although it is able to get reasonable sounding rhythmic qualities.
+        This implies that the model was overfitting to the training data. This is expected as a linear model is unable to learn the local structure of the spectrograms
+        and how the different frequencies interact with one another in ways such as learning proper harmonics. Next in quality, we find the the more basic convolutional model.
+        Like the linear model, this model appears to accurately reconstruct temporal features but is lacking in quality harmonically and its reconstructed audios are not
+        convincingly piano (although it does perform better than the linear model in this respect).
+      </p>
+      <p>
+        The ADA conv model and the residual model performed similarly in the 
+        quality of the audio reconstructions and had strengths in slightly different areas. As we observed in the reconstruction, the residual model does not excell in producing
+        audio with quick note changes with distinct temporal starts and often blends such sounds together. That being said, as can be observed in the first sample for the model,
+        it does produce features that appear to runs on piano, granted, these do sound very blended. These intesting features were not observed in other samples from the ADA conv 
+        model. The ADA conv model, on the other hand, is capable of generating audio with faster note changes, as can be observed in its second sample. Such samples were much more abundant
+        than in the residual model. By listening to a plethora of samples from both models, we opted to proceed with the ADA conv model
+        for further testing although both models excelled in different ways for the task of audio generation.
+      </p>
+      <p>
+        Now that we have a model to continue with, let's explore some of the properties of it. Arguably the most important and most
+        interesting property of a VAE is it's latent space. First, we'll encode all of the training data and plot each pair of latent
+        dimensions against one another as shown below in <b>Figure 5</b>.
+        <figure class="iframe-container">
+          <img src="media/pairwise_latent/pairwise_scatterplot.png" width=95% style="display: block; margin: 0 auto;">
+          <figcaption>Figure 5: Pairwise plot of the encodings of the training data across all latent dimensions</figcaption>
+        </figure>
+        We observe that the result is unit Gaussian which is expected since we incur loss for how far away this latent space is from unit Gaussian.
+        Arguably the most interesting aspect of VAEs, and their particular interest for music generation, is the ability to deliberately move in
+        latent space in order to select for certain features. Below in <b>Figure 6</b>, we provide an interactive graphic to select any two latent dimensions and both
+        visualize and hear how the aspects of the decoded sound change across latent dimensions. For dimensions that are not selected, their encoded
+        values are set to 0.
+        <figure class="iframe-container">
+          <iframe
+            src="folder_selector.html?rows=5&cols=5&width=500&height=500&off_w=75&off_h=62"
+            style="border: none; width: 500px; height: 563px;"></iframe>
+          </iframe>
+          <hr>
+          <figcaption>Figure 6: Latent Dimension Analysis for Piano samples, using the ADA Conv architecture <br>(<font color="red">NOTE:</font> Click image to play audio)</figcaption>
+        </figure>
+      </p>
+      <p>
+        Lastly for the evaluation of the quality of reconstructed audio for these architectures, we'll take a look at how the ADA conv architecture performs
+        on other instruments. In particular, we also train a model with this architecture for both flute and violin since these are the other instruments that we 
+        have significant data for. We sample the latent space and decode the same random vector using each model. The results are below in <b>Figure 7</b>. 
+        <figure class="iframe-container">
+          <iframe
+            src="compare_model.html?width=500&height=800&rows=5&folder=media/mult_instruments_model_results/&colNames=piano,flute,violin"
+            style="border: none; width: 500px; height: 800px;">
+          </iframe>
+          <hr>
+          <figcaption>Figure 7: Comparison of outputs generated from random normal samples of the latent space for different instruments
+            <br>(<font color="red">NOTE:</font> Click image to play audio)</figcaption>
+        </figure>
+        Listening to the reconstructed audios, we subjectively determien that the piano model performs the best. The flute and violin model both perform similarly and have
+        successes and faults in similar areas. In particular, when there is a consistent tone or very slow moving notes, both models seems to accurately reconstruct the timbre
+        of their respective instruments well. However, for samples where there is more apparent movement or more complex sounds, the models struggle to resemble their instruments
+        harmonically. As a notable aside which brings us into the next section, note that despite decoding the same point in latent space,
+        the reconstructed audios sound very differnt from each other. This leads us to question whether these models still learn similar or compatible encodings in some sense.
+        If so, then it would be possible to do transfer learning with these models.
+      </p>
+
+      <section id="transfer">
+        <h1>Transfer Learning in Audio</h1>
+        <p>
+          Clearly as the models currently stand, the same encoded point in latent space maps to different features in the reconstructed spectrogram space.
+          Intuitively, this makes sense as we wouldn't expect the models to necessarily encode the same features of the spectrogram into the same latent dimensions
+          or even necessarily to learn the same features at all. However, if the latent spaces are similar in some sense then it should be possible to train a general
+          purpose encoder to work for a larger set of audio and apply it to more domain specific tasks such as individual instruments or potentially even on larger classes such as genre.
+          This would enable less training since only one half of the model (the decoder) would need to be trained.
+        </p>
+        <p>
+          In order to test this, we passed piano audio through the flute encoder and decoded with the piano decoder, training a linear neural network to interpolate between the flute's latent space and the
+          piano's latent space. Intuitively, we expect different domains of audio to share similar qualities which may be embedded in the
+          latent space (in the domain of instrument audio this is rythm, pitch, etc), so all that is needed to transfer between domains is translation
+          between latent spaces.
+        </p>
+        <p>
+          In particular, we took the ADA conv model for both the piano and the flute and constructed a <b>transfer VAE</b> which, on an input, passes it through the flute's encoder, then a small
+          (two hidden layers of width 128) neural net, then the piano's decoder. In training, we froze the parameters of the encoder and decoder so that it was only necessarily to train the neural net 
+          in the latent dimensions transfer layer, significantly reducing time. For training, since we're using the piano decoder, we train on piano audio and only consider the MSE loss between the original
+          spectrogram and the reconstructed spectrogram since the assumption is that the latent space that the flute encoder maps to is already approximately Gaussian. In <b>Figure 8</b> below, we display the results of this
+          experiment, providing the original audio, the audio from encoding with both a piano encoder and decoder, as well as the reconstructed audio from our transfer 
+          model which uses a flute encoder, small neural net, and piano decoder.
+        </p>
+
+        <figure class="iframe-container">
+          <iframe
+            src="compare_model.html?width=500&height=400&folder=media/transfer_learning/&colNames=true,piano_decoded,transfer_decoded"
+            style="border: none; width: 500px; height: 400px;">
+          </iframe>
+          <hr>
+          <figcaption>Figure 8: Comparison of the original audio compared to its encoding and decoding with a piano only model as well as our transfer model
+            <br>(<font color="red">NOTE:</font> Click image to play audio)
+
+          </figcaption>
+        </figure>
+        <br>
+        We notice that the transfer model does in fact roughly reconstruct the original audio although it is not perfect. In particular, it seems to capture timbrally what the audio
+        sounds like but struggles a bit in the time dimension. In the first reconstruction, the chord hits are misaligned over the frequencies and in the second reconstruction,
+        the reconstruction does not accurately capture the quick note changes. Despite this, the resulting audios are still recognizable as the originals.
+        This suggest that different domains which share similar overall properties (such as pitch or chords in the instrument audio domain) have
+        latent spaces which are able to translate global properties, providing hope for the possibility of using VAEs for transfer learning.
+        </p>
+      </section>
+
+      <section id="implications_and_limitations">
+        <h1>Implications, Limitations, and Future Work</h1>
+          
+          <p>
+            Through the evauluation of these audio music domains across different 
+          architectures, we demonstrate how domain-aware modifications—such as 1D kernels and residual blocks—can enhance model performance for 
+            capturing the nuanced properties of audio data. The successful translation of latent spaces between instruments further highlights 
+            VAEs' promise in reducing retraining efforts for cross-domain tasks if sufficient similarities can be found.
+          </p>
+        <p>
+          However, our experiments also revealed several limitations. While the transfer model was able to approximate 
+          reconstructions across domains, it still struggled with temporal precision in complex audio patterns such as those with quick note changes.
+        </p>
+        <p>
+          Another challenge lies in understanding and quantifying the similarities between latent spaces across domains. Although 
+          our approach of using a small neural network to map between latent spaces showed promise, it requires further 
+          validation and generalization across diverse audio datasets and tasks. 
+        </p> 
+        
+        <p>
+          Although we were constrained by resources (both in compute and overall time), our results show potential. However, the computational 
+          cost of training these very domain-specific models presents a scalability concern, especially given the relatively large depth 
+          of some architectures we used. Beyond this, it may be diffucult to train models as the number of epochs needed to train effectively, 
+          the size of data available, and the size of each sample (roughly 2 second) scale. 
+          </p>
+        
+          <h3>Future Work</h3>
+          <p>
+            While our finding show promise, future research should explore hybrid architectures that integrate 
+            convolutional layers for initial feature extraction with residual blocks for deeper, more nuanced 
+            processing.  Hybrid designs like this may have the potential to combine the strengths of temporal precision 
+            from convolutional models and the harmonic accuracy seen using residual models.
+          </p>
+          <p>
+            Beyond this, improving the temporal accuracy of the residual models may be an area for advancement. This could 
+            include fine-tuning the placement and configuration of residual connections, as well as integrating attention 
+            mechanisms to better capture rapid note transitions and detailed temporal dependencies in audio data.
+          </p>
+          <p>
+            Expanding the scope of transfer learning research to include more diverse audio datasets and domains is another 
+            priority. Formalizing metrics to quantify latent space similarities and ensuring consistent representations across 
+            models trained on varied data will be crucial. More work may be done on efficiently translating between these latent spaces.
+          </p>
+          <p>
+            Lastly, addressing computational limitations is essential for scaling these approaches. We may attempt to reduce the size of these models
+            to reduce training overhead without limiting performance.
+          </p>
+        </section>
+      
+      
+
+      <section id="Appendix">
+        <h1>Appendix</h1>
+
+        <b>A</b>
+        <table id="Appendix-Table-1">
+          <caption>Linear Model Architecture for Encoder and Decoder</caption>
+          <thead>
+            <tr>
+              <th>Layer Type</th>
+              <th>Layer Name</th>
+              <th>Input Dimension</th>
+              <th>Output Dimension</th>
+              <th>Notes</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Encoder</td>
+              <td>Flatten</td>
+              <td>(512x64)</td>
+              <td>32768</td>
+              <td>Flatten spectrogram</td>
+            </tr>
+            <tr>
+              <td>Encoder</td>
+              <td>Linear1</td>
+              <td>32768</td>
+              <td>4096</td>
+              <td></td>
+            </tr>
+            <tr>
+              <td>Encoder</td>
+              <td>Linear2</td>
+              <td>4096</td>
+              <td>1024</td>
+              <td></td>
+            </tr>
+            <tr>
+              <td>Encoder</td>
+              <td>Linear3</td>
+              <td>1024</td>
+              <td>256</td>
+              <td></td>
+            </tr>
+            <tr>
+              <td>Bottleneck</td>
+              <td>fc_mu</td>
+              <td>256</td>
+              <td>8</td>
+              <td>Encode mu</td>
+            </tr>
+            <tr>
+              <td>Bottleneck</td>
+              <td>fc_logvar</td>
+              <td>256</td>
+              <td>8</td>
+              <td>Encode logvar</td>
+            </tr>
+            <tr>
+              <td>Decoder</td>
+              <td>Linear1</td>
+              <td>8</td>
+              <td>256</td>
+              <td></td>
+            </tr>
+            <tr>
+              <td>Decoder</td>
+              <td>Linear2</td>
+              <td>256</td>
+              <td>1024</td>
+              <td></td>
+            </tr>
+            <tr>
+              <td>Decoder</td>
+              <td>Linear3</td>
+              <td>1024</td>
+              <td>4096</td>
+              <td></td>
+            </tr>
+            <tr>
+              <td>Decoder</td>
+              <td>Linear1</td>
+              <td>4096</td>
+              <td>32768</td>
+              <td></td>
+            </tr>
+            <tr>
+              <td>Decoder</td>
+              <td>Unflatten</td>
+              <td>32768</td>
+              <td>(512x64)</td>
+              <td>Final reconstructed output</td>
+            </tr>
+          </tbody>
+        </table>
+        <br>
+        <hr>
+
+        <b>B</b>
+        <table id="Appendix-Table-2">
+          <caption>Convolutional Model Architecture for Encoder and Decoder</caption>
+          <thead>
+            <tr>
+              <th>Layer Type</th>
+              <th>Layer Name</th>
+              <th>Input Dimension</th>
+              <th>Output Dimension</th>
+              <th>Notes</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Encoder</td>
+              <td>Conv1</td>
+              <td>(1x512x64)</td>
+              <td>(16x512x64)</td>
+              <td>kernel_size=(3,3), stride=(1,1)</td>
+            </tr>
+            <tr>
+              <td>Encoder</td>
+              <td>Conv2</td>
+              <td>(16x512x64)</td>
+              <td>(32x128x32)</td>
+              <td>kernel_size=(4,4), stride=(4,2)</td>
+            </tr>
+            <tr>
+              <td>Encoder</td>
+              <td>Conv3</td>
+              <td>(32x128x32)</td>
+              <td>(64x32x16)</td>
+              <td>kernel_size=(4,4), stride=(4,2)</td>
+            </tr>
+            <tr>
+              <td>Encoder</td>
+              <td>Conv4</td>
+              <td>(64x32x16)</td>
+              <td>(128x16x8)</td>
+              <td>kernel_size=(3,3), stride=(2,2)</td>
+            </tr>
+            <tr>
+              <td>Encoder</td>
+              <td>Conv5</td>
+              <td>(128x16x8)</td>
+              <td>(128x8x8)</td>
+              <td>kernel_size=(3,1), stride=(2,1)</td>
+            </tr>
+            <tr>
+              <td>Encoder</td>
+              <td>Flatten</td>
+              <td>(128x8x8)</td>
+              <td>8196</td>
+              <td>Flatten</td>
+            </tr>
+            <tr>
+              <td>Encoder</td>
+              <td>Linear1</td>
+              <td>8196</td>
+              <td>1024</td>
+              <td></td>
+            </tr>
+            <tr>
+              <td>Encoder</td>
+              <td>Linear2</td>
+              <td>1024</td>
+              <td>256</td>
+              <td></td>
+            </tr>
+            <tr>
+              <td>Bottleneck</td>
+              <td>fc_mu</td>
+              <td>256</td>
+              <td>8</td>
+              <td>Encode mu</td>
+            </tr>
+            <tr>
+              <td>Bottleneck</td>
+              <td>fc_logvar</td>
+              <td>256</td>
+              <td>8</td>
+              <td>Encode logvar</td>
+            </tr>
+            <tr>
+              <td>Decoder</td>
+              <td>Linear1</td>
+              <td>8</td>
+              <td>256</td>
+              <td></td>
+            </tr>
+            <tr>
+              <td>Decoder</td>
+              <td>Linear2</td>
+              <td>256</td>
+              <td>1024</td>
+              <td></td>
+            </tr>
+            <tr>
+              <td>Decoder</td>
+              <td>Linear3</td>
+              <td>1024</td>
+              <td>8196</td>
+              <td></td>
+            </tr>
+            <tr>
+              <td>Decoder</td>
+              <td>Unflatten</td>
+              <td>8196</td>
+              <td>(128x8x8)</td>
+              <td>Unflatten</td>
+            </tr>
+            <tr>
+              <td>Decoder</td>
+              <td>Deconv1</td>
+              <td>(128x8x8)</td>
+              <td>(128x16x8)</td>
+              <td>kernel_size=(3,1), stride=(2,1)</td>
+            </tr>
+            <tr>
+              <td>Decoder</td>
+              <td>Deconv2</td>
+              <td>(128x16x8)</td>
+              <td>(64x32x16)</td>
+              <td>kernel_size=(3,3), stride=(2,2)</td>
+            </tr>
+            <tr>
+              <td>Decoder</td>
+              <td>Deconv3</td>
+              <td>(64x32x16)</td>
+              <td>(32x128x32)</td>
+              <td>kernel_size=(5,5), stride=(4,2)</td>
+            </tr>
+            <tr>
+              <td>Decoder</td>
+              <td>Deconv4</td>
+              <td>(32x128x32)</td>
+              <td>(16x512x64)</td>
+              <td>kernel_size=(5,5), stride=(4,2)</td>
+            </tr>
+            <tr>
+              <td>Decoder</td>
+              <td>Deconv5</td>
+              <td>(16x512x64)</td>
+              <td>(1x512x64)</td>
+              <td>kernel_size=(1,1), stride=(1,1)</td>
+            </tr>
+          </tbody>
+        </table>
+        <br>
+        <hr>
+
+        <b>C</b>
+        <table id="Appendix-Table-3">
+          <caption>Audio Domain Aware Convolutional Model Architecture for Encoder and Decoder</caption>
+          <thead>
+            <tr>
+              <th>Layer Type</th>
+              <th>Layer Name</th>
+              <th>Input Dimension</th>
+              <th>Output Dimension</th>
+              <th>Notes</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Encoder</td>
+              <td>Conv1</td>
+              <td>(1x512x64)</td>
+              <td>(16x512x64)</td>
+              <td>kernel_size=(3,3), stride=(1,1)</td>
+            </tr>
+            <tr>
+              <td>Encoder</td>
+              <td>Conv2</td>
+              <td>(16x512x64)</td>
+              <td>(32x256x64)</td>
+              <td>kernel_size=(5,1), stride=(2,1)</td>
+            </tr>
+            <tr>
+              <td>Encoder</td>
+              <td>Conv3</td>
+              <td>(32x256x64)</td>
+              <td>(64x256x32)</td>
+              <td>kernel_size=(1,5), stride=(1,2)</td>
+            </tr>
+            <tr>
+              <td>Encoder</td>
+              <td>Conv4</td>
+              <td>(64x256x32)</td>
+              <td>(128x128x32)</td>
+              <td>kernel_size=(3,1), stride=(2,1)</td>
+            </tr>
+            <tr>
+              <td>Encoder</td>
+              <td>Conv5</td>
+              <td>(128x128x32)</td>
+              <td>(128x64x32)</td>
+              <td>kernel_size=(3,1), stride=(2,1)</td>
+            </tr>
+            <tr>
+              <td>Encoder</td>
+              <td>Conv6</td>
+              <td>(128x64x32)</td>
+              <td>(128x64x16)</td>
+              <td>kernel_size=(1,3), stride=(1,2)</td>
+            </tr>
+            <tr>
+              <td>Encoder</td>
+              <td>Conv7</td>
+              <td>(128x64x16)</td>
+              <td>(128x32x16)</td>
+              <td>kernel_size=(3,1), stride=(2,1)</td>
+            </tr>
+            <tr>
+              <td>Encoder</td>
+              <td>Conv8</td>
+              <td>(128x32x16)</td>
+              <td>(128x16x16)</td>
+              <td>kernel_size=(3,1), stride=(2,1)</td>
+            </tr>
+            <tr>
+              <td>Encoder</td>
+              <td>Flatten</td>
+              <td>(128x16x16)</td>
+              <td>32768</td>
+              <td>Flatten</td>
+            </tr>
+            <tr>
+              <td>Encoder</td>
+              <td>Linear1</td>
+              <td>32768</td>
+              <td>2048</td>
+              <td></td>
+            </tr>
+            <tr>
+              <td>Encoder</td>
+              <td>Linear2</td>
+              <td>2048</td>
+              <td>256</td>
+              <td></td>
+            </tr>
+            <tr>
+              <td>Bottleneck</td>
+              <td>fc_mu</td>
+              <td>256</td>
+              <td>8</td>
+              <td>Encode mu</td>
+            </tr>
+            <tr>
+              <td>Bottleneck</td>
+              <td>fc_logvar</td>
+              <td>256</td>
+              <td>8</td>
+              <td>Encode logvar</td>
+            </tr>
+            <tr>
+              <td>Decoder</td>
+              <td>Linear1</td>
+              <td>8</td>
+              <td>256</td>
+              <td></td>
+            </tr>
+            <tr>
+              <td>Decoder</td>
+              <td>Linear2</td>
+              <td>256</td>
+              <td>2048</td>
+              <td></td>
+            </tr>
+            <tr>
+              <td>Decoder</td>
+              <td>Linear3</td>
+              <td>2048</td>
+              <td>32176</td>
+              <td></td>
+            </tr>
+            <tr>
+              <td>Decoder</td>
+              <td>Unflatten</td>
+              <td>32176</td>
+              <td>(128x16x16)</td>
+              <td>Unflatten</td>
+            </tr>
+            <tr>
+              <td>Decoder</td>
+              <td>Deconv1</td>
+              <td>(128x16x16)</td>
+              <td>(128x32x16)</td>
+              <td>kernel_size=(3,1), stride=(2,1)</td>
+            </tr>
+            <tr>
+              <td>Decoder</td>
+              <td>Deconv2</td>
+              <td>(128x32x16)</td>
+              <td>(128x64x16)</td>
+              <td>kernel_size=(3,1), stride=(2,1)</td>
+            </tr>
+            <tr>
+              <td>Decoder</td>
+              <td>Deconv3</td>
+              <td>(128x64x16)</td>
+              <td>(128x64x32)</td>
+              <td>kernel_size=(1,3), stride=(1,2)</td>
+            </tr>
+            <tr>
+              <td>Decoder</td>
+              <td>Deconv4</td>
+              <td>(128x64x32)</td>
+              <td>(128x128x32)</td>
+              <td>kernel_size=(3,1), stride=(2,1)</td>
+            </tr>
+            <tr>
+              <td>Decoder</td>
+              <td>Deconv5</td>
+              <td>(128x128x32)</td>
+              <td>(64x256x32)</td>
+              <td>kernel_size=(3,1), stride=(2,1)</td>
+            </tr>
+            <tr>
+              <td>Decoder</td>
+              <td>Deconv6</td>
+              <td>(64x256x32)</td>
+              <td>(32x256x64)</td>
+              <td>kernel_size=(1,5), stride=(1,2)</td>
+            </tr>
+            <tr>
+              <td>Decoder</td>
+              <td>Deconv7</td>
+              <td>(32x256x64)</td>
+              <td>(16x512x64)</td>
+              <td>kernel_size=(5,1), stride=(2,1)</td>
+            </tr>
+            <tr>
+              <td>Decoder</td>
+              <td>Deconv8</td>
+              <td>(16x512x64)</td>
+              <td>(1x512x64)</td>
+              <td>kernel_size=(3,3), stride=(1,1)</td>
+            </tr>
+          </tbody>
+        </table>
+        <br>
+        <hr>
+
+        <b>D</b>
+        <table id="Appendix-Table-4">
+          <caption>Audio Domain Aware Residual Model Architecture for Encoder and Decoder</caption>
+          <thead>
+            <tr>
+              <th>Layer Type</th>
+              <th>Layer Name</th>
+              <th>Input Dimension</th>
+              <th>Output Dimension</th>
+              <th>Notes</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Encoder</td>
+              <td>Resid1</td>
+              <td>(1x512x64)</td>
+              <td>(16x256x32)</td>
+              <td>kernel_size=(3,3), stride=(2,2)</td>
+            </tr>
+            <tr>
+              <td>Encoder</td>
+              <td>Resid2</td>
+              <td>(16x256x32)</td>
+              <td>(32x128x32)</td>
+              <td>kernel_size=(5,1), stride=(2,1)</td>
+            </tr>
+            <tr>
+              <td>Encoder</td>
+              <td>Resid3</td>
+              <td>(32x128x32)</td>
+              <td>(64x128x16)</td>
+              <td>kernel_size=(1,5), stride=(1,2)</td>
+            </tr>
+            <tr>
+              <td>Encoder</td>
+              <td>Resid4</td>
+              <td>(64x128x16)</td>
+              <td>(128x64x16)</td>
+              <td>kernel_size=(3,1), stride=(2,1)</td>
+            </tr>
+            <tr>
+              <td>Encoder</td>
+              <td>Conv1</td>
+              <td>(128x64x16)</td>
+              <td>(128x64x8)</td>
+              <td>kernel_size=(1,3), stride=(1,2)</td>
+            </tr>
+            <tr>
+              <td>Encoder</td>
+              <td>Conv2</td>
+              <td>(128x64x8)</td>
+              <td>(128x32x8)</td>
+              <td>kernel_size=(3,1), stride=(2,1)</td>
+            </tr>
+            <tr>
+              <td>Encoder</td>
+              <td>Conv3</td>
+              <td>(128x32x8)</td>
+              <td>(128x16x8)</td>
+              <td>kernel_size=(3,1), stride=(2,1)</td>
+            </tr>
+            <tr>
+              <td>Encoder</td>
+              <td>Flatten</td>
+              <td>(128x16x8)</td>
+              <td>16384</td>
+              <td>Flatten</td>
+            </tr>
+            <tr>
+              <td>Encoder</td>
+              <td>Linear1</td>
+              <td>16384</td>
+              <td>2048</td>
+              <td></td>
+            </tr>
+            <tr>
+              <td>Encoder</td>
+              <td>Linear2</td>
+              <td>2048</td>
+              <td>256</td>
+              <td></td>
+            </tr>
+            <tr>
+              <td>Bottleneck</td>
+              <td>fc_mu</td>
+              <td>256</td>
+              <td>8</td>
+              <td>Encode mu</td>
+            </tr>
+            <tr>
+              <td>Bottleneck</td>
+              <td>fc_logvar</td>
+              <td>256</td>
+              <td>8</td>
+              <td>Encode logvar</td>
+            </tr>
+            <tr>
+              <td>Decoder</td>
+              <td>Linear1</td>
+              <td>8</td>
+              <td>256</td>
+              <td></td>
+            </tr>
+            <tr>
+              <td>Decoder</td>
+              <td>Linear2</td>
+              <td>256</td>
+              <td>2048</td>
+              <td></td>
+            </tr>
+            <tr>
+              <td>Decoder</td>
+              <td>Linear3</td>
+              <td>2048</td>
+              <td>16384</td>
+              <td></td>
+            </tr>
+            <tr>
+              <td>Decoder</td>
+              <td>Unflatten</td>
+              <td>16384</td>
+              <td>(128x16x8)</td>
+              <td>Unflatten</td>
+            </tr>
+            <tr>
+              <td>Decoder</td>
+              <td>Resid1</td>
+              <td>(128x16x8)</td>
+              <td>(128x16x8)</td>
+              <td>kernel_size=(3,3), stride=(1,1)</td>
+            </tr>
+            <tr>
+              <td>Decoder</td>
+              <td>Deconv1</td>
+              <td>(128x16x8)</td>
+              <td>(128x32x8)</td>
+              <td>kernel_size=(3,1), stride=(2,1)</td>
+            </tr>
+            <tr>
+              <td>Decoder</td>
+              <td>Deconv2</td>
+              <td>(128x32x8)</td>
+              <td>(128x64x8)</td>
+              <td>kernel_size=(3,1), stride=(2,1)</td>
+            </tr>
+            <tr>
+              <td>Decoder</td>
+              <td>Deconv3</td>
+              <td>(128x64x8)</td>
+              <td>(128x64x16)</td>
+              <td>kernel_size=(1,3), stride=(1,2)</td>
+            </tr>
+            <tr>
+              <td>Decoder</td>
+              <td>Resid2</td>
+              <td>(128x64x16)</td>
+              <td>(128x64x16)</td>
+              <td>kernel_size=(3,3), stride=(1,1)</td>
+            </tr>
+            <tr>
+              <td>Decoder</td>
+              <td>Deconv4</td>
+              <td>(128x64x16)</td>
+              <td>(64x128x16)</td>
+              <td>kernel_size=(3,1), stride=(2,1)</td>
+            </tr>
+            <tr>
+              <td>Decoder</td>
+              <td>Deconv5</td>
+              <td>(64x128x16)</td>
+              <td>(32x128x32)</td>
+              <td>kernel_size=(1,5), stride=(1,2)</td>
+            </tr>
+            <tr>
+              <td>Decoder</td>
+              <td>Resid3</td>
+              <td>(32x128x32)</td>
+              <td>(32x128x32)</td>
+              <td>kernel_size=(3,3), stride=(1,1)</td>
+            </tr>
+            <tr>
+              <td>Decoder</td>
+              <td>Deconv6</td>
+              <td>(32x128x32)</td>
+              <td>(16x256x32)</td>
+              <td>kernel_size=(5,1), stride=(2,1)</td>
+            </tr>
+            <tr>
+              <td>Decoder</td>
+              <td>Resid4</td>
+              <td>(16x256x32)</td>
+              <td>(16x256x32)</td>
+              <td>kernel_size=(3,3), stride=(1,1)</td>
+            </tr>
+            <tr>
+              <td>Decoder</td>
+              <td>Deconv7</td>
+              <td>(16x256x32)</td>
+              <td>(1x512x64)</td>
+              <td>kernel_size=(3,3), stride=(2,2)</td>
+            </tr>
+          </tbody>
+        </table>
+
+      </section>
+
+      <br>
+      <section id="references" class="references">
+        <h1>References</h1>
+        <a id="RAVE" href="https://arxiv.org/pdf/2111.05011">[1] RAVE</a>
+        <br>
+        <a id="autoencoders_transfer" href="https://arxiv.org/pdf/2304.10767">[2] How Good are Variational Autoencoders at Transfer Learning?</a>
+        <br>
+        <a id="latent_reps_speech" href="https://arxiv.org/pdf/1704.04222">[3] Hsu W., et al, "Learning Latent Representations for Speech Generation and Transformation"</a>
+        <br>
+        <a id="beta_anneal" href="https://ml4physicalsciences.github.io/2020/files/NeurIPS_ML4PS_2020_133.pdf">[4] β-Annealed Variational Autoencoder for glitches </a>
+        <br>
+        <a id="jukebox" href="https://arxiv.org/pdf/2005.00341">[5] Jukebox: A Generative Model for Music </a>
+        <br>
+        <a id="musicvae" href="https://magenta.tensorflow.org/music-vae">[6] MusicVAE: Creating a palette for musical scores with machine learning.</a>
+        <br>
+        <a id="db" href="https://zenodo.org/records/2582103">[7] Medley-solos-DB dataset</a>
+        <br>
+        <a id="resid" href="https://proceedings.neurips.cc/paper/2020/file/e3b21256183cf7c2c7a66be163579d37-Paper.pdf">[8] Vahdat A., Kautz J.</a> 
+      </section>
+    </div>
+
+    <!-- Right Sidebar -->
+    <!-- <div class="right-sidebar">
+      <h2>Note</h2>
+      <p>Add supplementary notes or additional content here.</p>
+    </div> -->
+  </div>
+
+  <footer>
+    &copy; 2024, Ellery Stahler and Evan Bell
+  </footer>
+  <!-- Link to external JavaScript file -->
+  <script src="script.js"></script>
+</body>
+
+</html>

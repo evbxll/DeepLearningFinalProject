@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Audio Grid</title>
+  <style>
+    .container {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+    }
+    img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      display: block;
+    }
+    .audio-area {
+      position: absolute;
+      /* background-color: rgba(0, 0, 0, 0.2); */
+      cursor: pointer;
+      /* border: 1px solid rgba(255, 255, 255, 0.5); */
+      transition: background-color 0.3s ease;
+    }
+    .audio-area:hover {
+      background-color: rgba(141, 141, 141, 0.178);
+    }
+    body {
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+    }
+  </style>
+</head>
+<body>
+  <div class="container" id="imageContainer"></div>
+
+  <script>
+    // Function to parse query parameters
+    function getParamsFromURL() {
+      const urlParams = new URLSearchParams(window.location.search);
+      return {
+        imgFilename: urlParams.get('img_filename') || '',
+        audioFilename: urlParams.get('audio_filename') || '',
+        width: parseInt(urlParams.get('width') || '800', 10),
+        height: parseInt(urlParams.get('height') || '600', 10),
+      };
+    }
+
+    // Initialize and set up the grid
+    function initializeGrid({ imgFilename, audioFilename, width, height }) {
+      const imageContainer = document.getElementById('imageContainer');
+      const imageUrl = imgFilename;
+
+      // Set container size
+      imageContainer.style.width = `${width}px`;
+      imageContainer.style.height = `${height}px`;
+
+      // Create the image element
+      const uploadedImage = new Image();
+      uploadedImage.src = imageUrl;
+
+      uploadedImage.onload = () => {
+        // Clear existing content
+        imageContainer.innerHTML = '';
+
+        // Style and append the image
+        uploadedImage.style.width = `${width}px`;
+        uploadedImage.style.height = `${height}px`;
+        uploadedImage.style.objectFit = 'contain';
+        imageContainer.appendChild(uploadedImage);
+
+        // Clear any existing audio areas
+        imageContainer.querySelectorAll('.audio-area').forEach(area => area.remove());
+
+        // Create the audio interaction area
+        const audioArea = document.createElement('div');
+        audioArea.classList.add('audio-area');
+        audioArea.style.width = `${width}px`;
+        audioArea.style.height = `${height}px`;
+        audioArea.style.left = '0';
+        audioArea.style.top = '0';
+        audioArea.dataset.audio = audioFilename;
+
+        // Add click event to play the audio
+        audioArea.addEventListener('click', () => {
+          const audioFile = audioArea.dataset.audio;
+          if (audioFile) {
+            const audio = new Audio(audioFile);
+            audio.play();
+          } else {
+            alert('Audio file not specified.');
+          }
+        });
+
+        imageContainer.appendChild(audioArea);
+      };
+
+      // Handle image loading errors
+      uploadedImage.onerror = () => {
+        alert(`Error loading image from ${imageUrl}. Please check the file path.`);
+      };
+    }
+
+    // Initialize the grid on page load
+    const params = getParamsFromURL();
+    if (params.imgFilename && params.audioFilename) {
+      initializeGrid(params);
+    } else {
+      alert('Please specify "img_filename" and "audio_filename" in the query parameters.');
+    }
+  </script>
+</body>
+</html>

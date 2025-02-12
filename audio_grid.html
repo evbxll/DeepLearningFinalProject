@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Audio Grid</title>
+  <style>
+    .container {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+    }
+    img {
+      width: 100%; /* Stretch to container width */
+      height: 100%; /* Stretch to container height */
+      object-fit: contain; /* Force distortion to fit container */
+      display: block;
+    }
+    .audio-area {
+      position: absolute;
+      background-color: rgba(0, 0, 0, 0.2);
+      cursor: pointer;
+      border: 1px solid rgba(255, 255, 255, 0.5);
+      transition: background-color 0.3s ease;
+    }
+    .audio-area:hover {
+      background-color: rgba(0, 0, 0, 0.589);
+    }
+    body {
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+    }
+  </style>
+</head>
+<body>
+  <div class="container" id="imageContainer"></div>
+
+  <script>
+    // Function to parse query parameters and iframe attributes
+    function getParamsFromIframe() {
+      const urlParams = new URLSearchParams(window.location.search);
+      return {
+        folder: urlParams.get('folder') || '',
+        rows: parseInt(urlParams.get('rows') || '3', 10),
+        cols: parseInt(urlParams.get('cols') || '3', 10),
+        width: parseInt(urlParams.get('width') || '800', 10),
+        height: parseInt(urlParams.get('height') || '600', 10),
+        off_w: parseInt(urlParams.get('off_w') || '0', 10),
+        off_h: parseInt(urlParams.get('off_h') || '0', 10),
+      };
+    }
+
+    // Dynamically load image and create grid
+    function initializeGrid({ folder, rows, cols, width, height, off_w, off_h}) {
+      const imageContainer = document.getElementById('imageContainer');
+      const imageUrl = `${folder}/latent_plot.png`;
+
+      // Set container size to the passed width and height
+      imageContainer.style.width = `${width}px`;
+      imageContainer.style.height = `${height}px`;
+
+      // Create the main image element
+      const uploadedImage = new Image();
+      uploadedImage.src = imageUrl;
+
+      uploadedImage.onload = () => {
+        // Append the image and squash it to fit the container dimensions
+        imageContainer.innerHTML = '';
+        uploadedImage.style.width = `${width}px`;
+        uploadedImage.style.height = `${height}px`;
+        uploadedImage.style.objectFit = 'fill'; // Force distortion
+        imageContainer.appendChild(uploadedImage);
+
+        const w_diff = 10
+        const h_diff = 7
+        const cellDiff = 0
+
+        if (off_h == 0 && off_w == 0){
+          w_diff = 0
+          h_diff = 0
+          cellDiff = 0
+        }
+
+        const cellWidth = (width-off_w-cellDiff) / cols;
+        const cellHeight = (height-off_h-cellDiff) / rows;
+
+        // Clear any existing grid
+        imageContainer.querySelectorAll('.audio-area').forEach(area => area.remove());
+
+        // Create the grid areas
+        for (let row = 0; row < rows; row++) {
+          for (let col = 0; col < cols; col++) {
+            const audioArea = document.createElement('div');
+            audioArea.classList.add('audio-area');
+            audioArea.style.width = `${cellWidth}px`;
+            audioArea.style.height = `${cellHeight}px`;
+            audioArea.style.left = `${col * cellWidth + off_w - w_diff}px`;
+            audioArea.style.top = `${row * cellHeight + h_diff}px`;
+
+            // Assign an audio file from the folder
+            audioArea.dataset.audio = `${folder}/val1=${row}_val2=${col}.wav`;
+
+            // Add click event
+            audioArea.addEventListener('click', () => {
+              const audioFile = audioArea.dataset.audio;
+              const audio = new Audio(audioFile);
+              audio.play();
+            });
+
+            imageContainer.appendChild(audioArea);
+          }
+        }
+      };
+
+      uploadedImage.onerror = () => {
+        alert(`Error loading image from ${imageUrl}. Please check the folder and file naming.`);
+      };
+    }
+
+    // Initialize the grid with parameters
+    const params = getParamsFromIframe();
+    if (params.folder) {
+      initializeGrid(params);
+    } else {
+      alert('Please specify a folder using the "folder" query parameter.');
+    }
+  </script>
+</body>
+</html>

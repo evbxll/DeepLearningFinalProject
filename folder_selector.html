@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Audio Grid Pair Selector</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      width: 100vw;
+      height: 100vh; /* Ensure body has a fixed height */
+      overflow: hidden; /* Prevent scrollbars on the body initially */
+    }
+    .top-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 20px;
+      background-color: #f8f9fa;
+      border-bottom: 1px solid #ddd;
+    }
+    label, select, button {
+      margin: 0 10px;
+    }
+    select, button {
+      padding: 8px 12px;
+    }
+    .iframe-container {
+      margin: 0;
+      padding: 0;
+      display: none; /* Initially hidden */
+      justify-content: center;
+      align-items: center;
+      width: 100%;
+      height: 100%;
+    }
+    iframe {
+      width: 100%;
+      height: 100%;
+      border: none;
+      overflow: hidden; /* Ensure no scrollbars for iframe */
+    }
+  </style>
+</head>
+<body>
+  <div class="top-row">
+    <div>
+      <label for="value1">Select Latent Dim 1:</label>
+      <select id="value1">
+        <option value="1">1</option>
+        <option value="2">2</option>
+        <option value="3">3</option>
+        <option value="4">4</option>
+        <option value="5">5</option>
+        <option value="6">6</option>
+        <option value="7">7</option>
+      </select>
+    </div>
+    <div>
+      <label for="value2">Select Latent Dim 2:</label>
+      <select id="value2">
+        <option value="2">2</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="iframe-container" id="iframe-container">
+    <iframe id="audio-grid-iframe"></iframe>
+  </div>
+
+  <script>
+    const value1Select = document.getElementById('value1');
+    const value2Select = document.getElementById('value2');
+
+    // Initialize value2 based on value1
+    value1Select.value = "1";
+    updateValue2Options();
+
+    // Add event listener to dynamically update value2 when value1 changes
+    value1Select.addEventListener('change', updateValue2Options);
+
+    function updateValue2Options() {
+      const value1 = parseInt(value1Select.value, 10);
+      const currentValue2 = value2Select.value; // Store the current value of value2
+
+      // Clear current options in value2
+      value2Select.innerHTML = '';
+
+      let validValueExists = false;
+
+      // Add the +1 options to value2 if within bounds
+      for (let i = value1 + 1; i <= 8; ++i) {
+        const option = document.createElement('option');
+        option.value = i;
+        option.textContent = i;
+        
+        // Check if the current value is still valid
+        if (currentValue2 == i) {
+          option.selected = true; // Keep it selected if still valid
+          validValueExists = true;
+        }
+
+        value2Select.appendChild(option);
+      }
+
+      // If the current value is no longer valid, select the first available option
+      if (!validValueExists && value2Select.options.length > 0) {
+        value2Select.options[0].selected = true;
+      }
+    } 
+
+    // Function to get default parameters from the URL query string
+    function getParamsFromIframe() {
+      const urlParams = new URLSearchParams(window.location.search);
+      return {
+        rows: parseInt(urlParams.get('rows') || '3', 10),
+        cols: parseInt(urlParams.get('cols') || '3', 10),
+        width: parseInt(urlParams.get('width') || '800', 10),
+        height: parseInt(urlParams.get('height') || '600', 10),
+        off_w: parseInt(urlParams.get('off_w') || '0', 10),
+        off_h: parseInt(urlParams.get('off_h') || '0', 10),
+      };
+    }
+
+    const params = getParamsFromIframe();
+
+    function updateGrid(){
+      // Get selected values
+      const value1 = document.getElementById('value1').value;
+      const value2 = document.getElementById('value2').value;
+
+      if (value1 === value2) {
+        alert("Values must be different.");
+        return;
+      }
+
+      // Construct the iframe URL
+      const folder = `media/latent_space_comparison/dim1=${value1}_dim2=${value2}`;
+      const url = `audio_grid.html?folder=${folder}&rows=${params.rows}&cols=${params.cols}&width=${params.width}&height=${params.height}&off_w=${params.off_w}&off_h=${params.off_h}&value1=${value1}&value2=${value2}`;
+      
+      // Update iframe source
+      const iframeContainer = document.getElementById('iframe-container');
+      const iframe = document.getElementById('audio-grid-iframe');
+
+      iframe.src = url;
+      iframeContainer.style.display = 'flex'; // Show iframe container
+
+      // Adjust body size based on iframe parameters
+      document.body.style.width = `${params.width}px`;
+      document.body.style.height = `${params.height}px`;
+    }
+
+
+    value1Select.addEventListener('change', updateGrid);
+    value2Select.addEventListener('change', updateGrid);
+    
+    // Call updateGrid on page load
+    document.addEventListener('DOMContentLoaded', () => {
+      updateGrid();
+    });
+
+  </script>
+</body>
+</html>
